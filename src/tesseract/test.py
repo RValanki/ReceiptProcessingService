@@ -33,5 +33,5 @@ def ocr_receipt(path):
         return pytesseract.image_to_string(pil_img)
 
 if __name__ == "__main__":
-    receipt_path = "/Users/rohitvalanki/ReceiptProcessingService/src/tesseract/test-receipts/eReceipt_2596_Macarthur Chambers_02Aug2025__qwmfd.pdf"
+    receipt_path = "/src/test-receipts/eReceipt_2596_Macarthur Chambers_02Aug2025__qwmfd.pdf"
     print(ocr_receipt(receipt_path))
