@@ -3,6 +3,7 @@ import re
 import os
 import json
 import sys
+from typing import Optional
 
 from dotenv import load_dotenv
 from azure.ai.formrecognizer import DocumentAnalysisClient
@@ -11,6 +12,7 @@ from azure.core.exceptions import HttpResponseError, ServiceRequestError, Client
 
 from src.model.ReceiptModel import Receipt
 from src.model.ReceiptItemModel import ReceiptItem
+from src.model.WeightModel import Weight, WeightUnit
 
 load_dotenv()
 
@@ -23,32 +25,41 @@ if not endpoint or not key:
 client = DocumentAnalysisClient(endpoint=endpoint, credential=AzureKeyCredential(key))
 
 
+def parse_weight(weight_match) -> Optional[Weight]:
+    if not weight_match:
+        return None
+    num = float(weight_match.group(1))
+    unit_str = weight_match.group(2).lower()
+
+    if unit_str.startswith("kg"):
+        unit = WeightUnit.KILOGRAM
+    elif unit_str.startswith("g"):
+        unit = WeightUnit.GRAM
+    elif unit_str.startswith("ml"):
+        unit = WeightUnit.MILLILITRE
+    elif unit_str.startswith("l"):
+        unit = WeightUnit.LITRE
+    elif unit_str.startswith("pack"):
+        unit = WeightUnit.PACKS if unit_str.endswith("s") else WeightUnit.PACK
+    else:
+        unit = None
+
+    if unit is None:
+        return None
+
+    return Weight(value=num, unit=unit)
+
+
 def parse_item_line(line) -> ReceiptItem:
     original_line = re.sub(r'\s+', ' ', line).strip()
 
-    # Match weight anywhere in the line
     weight_pattern = re.compile(
         r'(\d+\.?\d*)\s*(kg|kilogram|kilograms|g|gram|grams|ml|millilitre|millilitres|l|litre|litres|liter|liters|pack|packs)',
         re.IGNORECASE
     )
     weight_match = weight_pattern.search(original_line)
-    weight = None
-    if weight_match:
-        num = float(weight_match.group(1))
-        unit = weight_match.group(2).lower()
-        # convert all to grams for consistency
-        if unit.startswith('kg'):
-            weight = num * 1000
-        elif unit.startswith('g'):
-            weight = num
-        elif unit.startswith('l'):
-            weight = num * 1000  # if treating ml/g similar
-        elif unit.startswith('ml'):
-            weight = num
-        else:
-            weight = num  # packs etc, no conversion
+    weight = parse_weight(weight_match)
 
-    # Extract price at end
     price_match = re.search(r'(\d+\.\d{2})\s*$', original_line)
     price = float(price_match.group(1)) if price_match else None
 
@@ -81,7 +92,7 @@ def extract_store_name(all_lines):
     return "Unknown"
 
 
-def extract_total_amount(all_lines):
+def extract_total_amount(all_lines) -> Optional[float]:
     for line in all_lines:
         match = re.search(r'Total\s+for\s+\d+\s+items:\s*\$?(\d+\.\d{2})', line, re.IGNORECASE)
         if match:
@@ -114,13 +125,11 @@ def parse_receipt_items(path) -> Receipt:
 
     store_name = extract_store_name(all_lines)
 
-    # Extract date (DD/MM/YYYY)
     date_pattern = re.compile(r'\b(\d{2}/\d{2}/\d{4})\b')
     date = next((m.group(1) for l in all_lines if (m := date_pattern.search(l))), None)
 
     total = extract_total_amount(all_lines)
 
-    # Parse items between "Description" and lines matching TOTAL / SUBTOTAL / etc
     item_lines = []
     capture = False
     for line in all_lines:
@@ -129,8 +138,8 @@ def parse_receipt_items(path) -> Receipt:
             continue
         if capture:
             if (re.search(r'\bTOTAL\b', line, re.IGNORECASE) or
-                re.search(r'Total\s+for\s+\d+\s+items', line, re.IGNORECASE) or
-                "SUBTOTAL" in line.upper()):
+                    re.search(r'Total\s+for\s+\d+\s+items', line, re.IGNORECASE) or
+                    "SUBTOTAL" in line.upper()):
                 break
             if line.strip():
                 item_lines.append(line)
@@ -138,13 +147,11 @@ def parse_receipt_items(path) -> Receipt:
     parsed_items = []
     current_item = ""
     for l in item_lines:
-        # Detect quantity line pattern like "2 @ $15.00 EACH"
         if re.match(r'^\d+\s*@\s*\$\d+\.\d{2}\s*EACH$', l.strip(), re.IGNORECASE):
             qty_match = re.match(r'^(\d+)\s*@\s*\$\d+\.\d{2}\s*EACH$', l.strip(), re.IGNORECASE)
             if qty_match and parsed_items:
-                parsed_items[-1].qty = int(qty_match.group(1))  # update quantity of last item
+                parsed_items[-1].qty = int(qty_match.group(1))
         else:
-            # Accumulate item line until price found at end
             if current_item:
                 current_item += " " + l
             else:
@@ -162,6 +169,7 @@ def parse_receipt_items(path) -> Receipt:
         total_amount=total,
         items=parsed_items
     )
+
 
 if __name__ == "__main__":
     default_path = "/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/coles/e-receipts/receipt3.pdf"
