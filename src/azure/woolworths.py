@@ -2,6 +2,8 @@ import re
 import os
 import dataclasses
 import json
+import sys
+
 from dotenv import load_dotenv
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
@@ -144,7 +146,12 @@ def parse_receipt_items(path) -> Receipt:
     )
 
 
+import sys
+
 if __name__ == "__main__":
-    receipt = parse_receipt_items("/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/woolworths/e-receipts/eReceipt_3168_Endeavour%20Hills_03Feb2025__xjifb.pdf")
+    default_path = "/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/woolworths/e-receipts/eReceipt_3168_Endeavour%20Hills_03Feb2025__xjifb.pdf"
+    receipt_path = sys.argv[1] if len(sys.argv) > 1 else default_path
+    receipt = parse_receipt_items(receipt_path)
     receipt_dict = dataclasses.asdict(receipt)
     print(json.dumps(receipt_dict, indent=4))
+
