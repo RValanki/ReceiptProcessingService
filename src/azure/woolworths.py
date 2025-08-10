@@ -117,4 +117,4 @@ def print_receipt_items(path):
         print(item)
 
 if __name__ == "__main__":
-    print_receipt_items("/Users/rohitvalanki/ReceiptProcessingService/src/test-receipts/eReceipt_2596_Macarthur%20Chambers_03Mar2025__klgxe.pdf")
+    print_receipt_items("/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/woolworths/e-receipts/eReceipt_3168_Endeavour%20Hills_03Feb2025__xjifb.pdf")
