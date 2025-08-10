@@ -24,35 +24,52 @@ client = DocumentAnalysisClient(endpoint=endpoint, credential=AzureKeyCredential
 
 
 def parse_item_line(line) -> ReceiptItem:
-    weight_match = re.search(r'(\d+\.?\d*\s?(kg|g|ml|l))', line, re.IGNORECASE)
-    weight = weight_match.group(1) if weight_match else "N/A"
+    # Extract weight as grams (float)
+    weight = None
+    weight_match = re.search(r'(\d+\.?\d*)\s?(kg|g|ml|l)', line, re.IGNORECASE)
+    if weight_match:
+        num = float(weight_match.group(1))
+        unit = weight_match.group(2).lower()
+        if unit.startswith('kg'):
+            weight = num * 1000
+        elif unit.startswith('g'):
+            weight = num
+        elif unit.startswith('l'):
+            weight = num * 1000
+        elif unit.startswith('ml'):
+            weight = num
 
+    # Extract price as float
+    price = None
     price_match = re.search(r'(\d+\.\d{2})\s*$', line)
-    price = price_match.group(1) if price_match else "N/A"
+    if price_match:
+        price = float(price_match.group(1))
 
-    # Remove price and weight from line to isolate name and qty
+    # Remove price and weight from the name
     name_part = line
-    if price != "N/A":
+    if price_match:
         name_part = name_part[:price_match.start()].strip()
-    if weight != "N/A":
-        name_part = name_part.replace(weight, '').strip()
+    if weight_match:
+        name_part = name_part.replace(weight_match.group(0), '').strip()
 
+    # Extract quantity
     qty = 1
     qty_match = re.search(r'(qty|quantity|x)\s?(\d+)', name_part, re.IGNORECASE)
     if qty_match:
         qty = int(qty_match.group(2))
         name_part = re.sub(r'(qty|quantity|x)\s?\d+', '', name_part, flags=re.IGNORECASE).strip()
 
-    # Clean item name to only alphanumeric characters and spaces
+    # Clean name
     clean_name = re.sub(r'[^A-Za-z0-9 ]+', '', name_part)
     clean_name = re.sub(r'\s+', ' ', clean_name).strip()
 
     return ReceiptItem(
         name=clean_name,
         qty=qty,
-        weight=weight.upper(),
+        weight=weight,
         price=price
     )
+
 
 
 def parse_receipt_items(path) -> Receipt:
@@ -94,7 +111,7 @@ def parse_receipt_items(path) -> Receipt:
         if line.upper() == "TOTAL" and i + 1 < len(all_lines):
             next_line = all_lines[i + 1].replace("$", "").strip()
             if re.match(r'^\d+\.\d{2}$', next_line):
-                total = next_line
+                total = float(next_line)
                 break
 
     # Parse items between Description and Promotional Price / SUBTOTAL

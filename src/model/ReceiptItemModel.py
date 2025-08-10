@@ -1,9 +1,9 @@
 from dataclasses import dataclass
+from typing import Optional
 
 @dataclass
 class ReceiptItem:
     name: str
     qty: int = 1
-    weight: str = "N/A"
-    price: str = "N/A"
-
+    weight: Optional[float] = None
+    price: Optional[float] = None

@@ -32,11 +32,25 @@ def parse_item_line(line) -> ReceiptItem:
         re.IGNORECASE
     )
     weight_match = weight_pattern.search(original_line)
-    weight = (weight_match.group(1) + weight_match.group(2)) if weight_match else "N/A"
+    weight = None
+    if weight_match:
+        num = float(weight_match.group(1))
+        unit = weight_match.group(2).lower()
+        # convert all to grams for consistency
+        if unit.startswith('kg'):
+            weight = num * 1000
+        elif unit.startswith('g'):
+            weight = num
+        elif unit.startswith('l'):
+            weight = num * 1000  # if treating ml/g similar
+        elif unit.startswith('ml'):
+            weight = num
+        else:
+            weight = num  # packs etc, no conversion
 
     # Extract price at end
     price_match = re.search(r'(\d+\.\d{2})\s*$', original_line)
-    price = price_match.group(1) if price_match else "N/A"
+    price = float(price_match.group(1)) if price_match else None
 
     # Remove price from name
     name_part = original_line
@@ -50,13 +64,12 @@ def parse_item_line(line) -> ReceiptItem:
         qty = int(qty_match.group(2))
         name_part = re.sub(r'(qty|quantity|x)\s?\d+', '', name_part, flags=re.IGNORECASE).strip()
 
-    # Strip leading/trailing non-alphanumeric characters (keep letters, digits, spaces inside)
     clean_name = re.sub(r'^[^A-Za-z0-9]+|[^A-Za-z0-9]+$', '', name_part)
 
     return ReceiptItem(
         name=clean_name,
         qty=qty,
-        weight=weight.upper(),
+        weight=weight,
         price=price
     )
 
@@ -72,12 +85,12 @@ def extract_total_amount(all_lines):
     for line in all_lines:
         match = re.search(r'Total\s+for\s+\d+\s+items:\s*\$?(\d+\.\d{2})', line, re.IGNORECASE)
         if match:
-            return match.group(1)
+            return float(match.group(1))
     for i, line in enumerate(all_lines):
         if "TOTAL" in line.upper() and i + 1 < len(all_lines):
             next_line = all_lines[i + 1].replace("$", "").strip()
             if re.match(r'^\d+\.\d{2}$', next_line):
-                return next_line
+                return float(next_line)
     return None
 
 
