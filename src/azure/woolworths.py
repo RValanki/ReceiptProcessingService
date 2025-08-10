@@ -74,8 +74,8 @@ def parse_receipt_items(path) -> Receipt:
         for line in page.lines:
             all_lines.append(line.content.strip())
 
-    # Extract store name (example, customize as needed)
-    store_name = next((line for line in all_lines if re.search(r'(coles|woolworths|aldi|coles supermarkets)', line, re.IGNORECASE)), "Unknown")
+    # Store name is the very last line of the receipt
+    store_name = all_lines[-1] if all_lines else "Unknown"
 
     # Extract date (DD/MM/YYYY)
     date_pattern = re.compile(r'\b(\d{2}/\d{2}/\d{4})\b')
@@ -146,6 +146,5 @@ def parse_receipt_items(path) -> Receipt:
 
 if __name__ == "__main__":
     receipt = parse_receipt_items("/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/woolworths/e-receipts/eReceipt_3168_Endeavour%20Hills_03Feb2025__xjifb.pdf")
-    # Pretty print the dataclass as JSON
     receipt_dict = dataclasses.asdict(receipt)
     print(json.dumps(receipt_dict, indent=4))
