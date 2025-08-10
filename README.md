@@ -13,7 +13,7 @@ cd "$(git rev-parse --show-toplevel)"
 pip install -r requirements.txt
 ```
 
-### How to run scripts
+### How to run scripts locally
 **Coles E-Receipt Script**
 
 To run coles E-Receipt Script run (Receipt Path is optional):
@@ -29,3 +29,18 @@ To run coles E-Receipt Script run (Receipt Path is optional):
 cd "$(git rev-parse --show-toplevel)"
 python -m src.azure.woolworths <path_to_receipt_pdf>    
 ```
+
+### How to run scripts with FastAPI
+**Spinup App locally:**
+```commandline
+uvicorn src.app:app --reload
+```
+
+**Test endpoint with this command:**
+```commandline
+curl -X POST "http://127.0.0.1:8000/parse-receipt/" -F "file=@/path/to/your/receipt.pdf"
+```
+
+**Test endpoint with Swagger UI:**
+
+http://127.0.0.1:8000/docs

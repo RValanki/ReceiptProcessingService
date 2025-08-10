@@ -1,2 +1,6 @@
 azure-ai-formrecognizer==3.3.3
 azure-core==1.26.4
+fastapi
+uvicorn[standard]
+python-dotenv
+python-multipart
