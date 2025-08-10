@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import HttpResponseError, ServiceRequestError, ClientAuthenticationError
 
 load_dotenv()
 
@@ -69,9 +70,25 @@ def extract_total_amount(all_lines):
 
 
 def print_receipt_items(path):
-    with open(path, "rb") as f:
-        poller = client.begin_analyze_document("prebuilt-receipt", document=f)
-    result = poller.result()
+    try:
+        with open(path, "rb") as f:
+            poller = client.begin_analyze_document("prebuilt-receipt", document=f)
+        result = poller.result()
+    except FileNotFoundError:
+        print(f"Error: File not found - {path}")
+        return
+    except ClientAuthenticationError:
+        print("Authentication failed: Check your Azure Form Recognizer key and endpoint.")
+        return
+    except ServiceRequestError as e:
+        print(f"Network error: {e}. Please check your internet connection.")
+        return
+    except HttpResponseError as e:
+        print(f"Service returned an error: {e.message}")
+        return
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return
 
     all_lines = [line.content.strip() for page in result.pages for line in page.lines]
 
@@ -125,5 +142,5 @@ def print_receipt_items(path):
 
 if __name__ == "__main__":
     print_receipt_items(
-        "/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/coles/e-receipts/receipt2.pdf"
+        "/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/coles/e-receipts/receipt3.pdf"
     )

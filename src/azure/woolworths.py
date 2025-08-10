@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import HttpResponseError, ServiceRequestError, ClientAuthenticationError
 
 load_dotenv()
 
@@ -42,9 +43,25 @@ def parse_item_line(line):
     return {"name": clean_name, "qty": qty, "weight": weight, "price": price}
 
 def print_receipt_items(path):
-    with open(path, "rb") as f:
-        poller = client.begin_analyze_document("prebuilt-receipt", document=f)
-    result = poller.result()
+    try:
+        with open(path, "rb") as f:
+            poller = client.begin_analyze_document("prebuilt-receipt", document=f)
+        result = poller.result()
+    except FileNotFoundError:
+        print(f"Error: File not found - {path}")
+        return
+    except ClientAuthenticationError:
+        print("Authentication failed: Check your Azure Form Recognizer key and endpoint.")
+        return
+    except ServiceRequestError as e:
+        print(f"Network error: {e}. Please check your internet connection.")
+        return
+    except HttpResponseError as e:
+        print(f"Service returned an error: {e.message}")
+        return
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return
 
     all_lines = []
     for page in result.pages:
