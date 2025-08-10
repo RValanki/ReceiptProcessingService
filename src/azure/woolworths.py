@@ -1,13 +1,17 @@
 import re
 import os
+import dataclasses
+import json
 from dotenv import load_dotenv
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError, ServiceRequestError, ClientAuthenticationError
 
+from src.model.ReceiptModel import Receipt
+from src.model.ReceiptItemModel import ReceiptItem
+
 load_dotenv()
 
-# Read key and endpoint from environment variables
 endpoint = os.environ.get("AZURE_FORM_RECOGNIZER_ENDPOINT")
 key = os.environ.get("AZURE_FORM_RECOGNIZER_KEY")
 
@@ -16,7 +20,8 @@ if not endpoint or not key:
 
 client = DocumentAnalysisClient(endpoint=endpoint, credential=AzureKeyCredential(key))
 
-def parse_item_line(line):
+
+def parse_item_line(line) -> ReceiptItem:
     weight_match = re.search(r'(\d+\.?\d*\s?(kg|g|ml|l))', line, re.IGNORECASE)
     weight = weight_match.group(1) if weight_match else "N/A"
 
@@ -33,40 +38,44 @@ def parse_item_line(line):
     qty = 1
     qty_match = re.search(r'(qty|quantity|x)\s?(\d+)', name_part, re.IGNORECASE)
     if qty_match:
-        qty = qty_match.group(2)
+        qty = int(qty_match.group(2))
         name_part = re.sub(r'(qty|quantity|x)\s?\d+', '', name_part, flags=re.IGNORECASE).strip()
 
     # Clean item name to only alphanumeric characters and spaces
     clean_name = re.sub(r'[^A-Za-z0-9 ]+', '', name_part)
     clean_name = re.sub(r'\s+', ' ', clean_name).strip()
 
-    return {"name": clean_name, "qty": qty, "weight": weight, "price": price}
+    return ReceiptItem(
+        name=clean_name,
+        qty=qty,
+        weight=weight.upper(),
+        price=price
+    )
 
-def print_receipt_items(path):
+
+def parse_receipt_items(path) -> Receipt:
     try:
         with open(path, "rb") as f:
             poller = client.begin_analyze_document("prebuilt-receipt", document=f)
         result = poller.result()
     except FileNotFoundError:
-        print(f"Error: File not found - {path}")
-        return
+        raise FileNotFoundError(f"File not found - {path}")
     except ClientAuthenticationError:
-        print("Authentication failed: Check your Azure Form Recognizer key and endpoint.")
-        return
+        raise RuntimeError("Authentication failed: Check your Azure Form Recognizer key and endpoint.")
     except ServiceRequestError as e:
-        print(f"Network error: {e}. Please check your internet connection.")
-        return
+        raise RuntimeError(f"Network error: {e}. Please check your internet connection.")
     except HttpResponseError as e:
-        print(f"Service returned an error: {e.message}")
-        return
+        raise RuntimeError(f"Service returned an error: {e.message}")
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        return
+        raise RuntimeError(f"An unexpected error occurred: {e}")
 
     all_lines = []
     for page in result.pages:
         for line in page.lines:
             all_lines.append(line.content.strip())
+
+    # Extract store name (example, customize as needed)
+    store_name = next((line for line in all_lines if re.search(r'(coles|woolworths|aldi|coles supermarkets)', line, re.IGNORECASE)), "Unknown")
 
     # Extract date (DD/MM/YYYY)
     date_pattern = re.compile(r'\b(\d{2}/\d{2}/\d{4})\b')
@@ -85,9 +94,6 @@ def print_receipt_items(path):
             if re.match(r'^\d+\.\d{2}$', next_line):
                 total = next_line
                 break
-
-    print(f"\nReceipt Date: {date if date else 'Not found'}")
-    print(f"Total Amount: ${total if total else 'Not found'}\n")
 
     # Parse items between Description and Promotional Price / SUBTOTAL
     start_parsing = False
@@ -127,11 +133,19 @@ def print_receipt_items(path):
     if current_item:
         combined_items.append(current_item.strip())
 
-    # Parse and print each item line
-    print("--- Receipt Items ---\n")
-    for item_line in combined_items:
-        item = parse_item_line(item_line)
-        print(item)
+    # Parse items into models
+    parsed_items = [parse_item_line(item_line) for item_line in combined_items]
+
+    return Receipt(
+        store_name=store_name,
+        date=date,
+        total_amount=total,
+        items=parsed_items
+    )
+
 
 if __name__ == "__main__":
-    print_receipt_items("/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/woolworths/e-receipts/eReceipt_3168_Endeavour%20Hills_03Feb2025__xjifb.pdf")
+    receipt = parse_receipt_items("/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/woolworths/e-receipts/eReceipt_3168_Endeavour%20Hills_03Feb2025__xjifb.pdf")
+    # Pretty print the dataclass as JSON
+    receipt_dict = dataclasses.asdict(receipt)
+    print(json.dumps(receipt_dict, indent=4))

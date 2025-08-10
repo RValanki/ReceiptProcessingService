@@ -1,9 +1,13 @@
 import re
 import os
+import json
 from dotenv import load_dotenv
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError, ServiceRequestError, ClientAuthenticationError
+
+from src.model.ReceiptModel import Receipt
+from src.model.ReceiptItemModel import ReceiptItem
 
 load_dotenv()
 
@@ -16,7 +20,7 @@ if not endpoint or not key:
 client = DocumentAnalysisClient(endpoint=endpoint, credential=AzureKeyCredential(key))
 
 
-def parse_item_line(line):
+def parse_item_line(line) -> ReceiptItem:
     original_line = re.sub(r'\s+', ' ', line).strip()
 
     # Match weight anywhere in the line
@@ -25,7 +29,7 @@ def parse_item_line(line):
         re.IGNORECASE
     )
     weight_match = weight_pattern.search(original_line)
-    weight = weight_match.group(1) + weight_match.group(2) if weight_match else "N/A"
+    weight = (weight_match.group(1) + weight_match.group(2)) if weight_match else "N/A"
 
     # Extract price at end
     price_match = re.search(r'(\d+\.\d{2})\s*$', original_line)
@@ -46,7 +50,12 @@ def parse_item_line(line):
     # Strip leading/trailing non-alphanumeric characters (keep letters, digits, spaces inside)
     clean_name = re.sub(r'^[^A-Za-z0-9]+|[^A-Za-z0-9]+$', '', name_part)
 
-    return {"name": clean_name, "qty": qty, "weight": weight.upper(), "price": price}
+    return ReceiptItem(
+        name=clean_name,
+        qty=qty,
+        weight=weight.upper(),
+        price=price
+    )
 
 
 def extract_store_name(all_lines):
@@ -69,40 +78,33 @@ def extract_total_amount(all_lines):
     return None
 
 
-def print_receipt_items(path):
+def parse_receipt_items(path) -> Receipt:
     try:
         with open(path, "rb") as f:
             poller = client.begin_analyze_document("prebuilt-receipt", document=f)
         result = poller.result()
     except FileNotFoundError:
-        print(f"Error: File not found - {path}")
-        return
+        raise FileNotFoundError(f"File not found - {path}")
     except ClientAuthenticationError:
-        print("Authentication failed: Check your Azure Form Recognizer key and endpoint.")
-        return
+        raise RuntimeError("Authentication failed: Check your Azure Form Recognizer key and endpoint.")
     except ServiceRequestError as e:
-        print(f"Network error: {e}. Please check your internet connection.")
-        return
+        raise RuntimeError(f"Network error: {e}. Please check your internet connection.")
     except HttpResponseError as e:
-        print(f"Service returned an error: {e.message}")
-        return
+        raise RuntimeError(f"Service returned an error: {e.message}")
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        return
+        raise RuntimeError(f"An unexpected error occurred: {e}")
 
     all_lines = [line.content.strip() for page in result.pages for line in page.lines]
 
     store_name = extract_store_name(all_lines)
 
+    # Extract date (DD/MM/YYYY)
     date_pattern = re.compile(r'\b(\d{2}/\d{2}/\d{4})\b')
     date = next((m.group(1) for l in all_lines if (m := date_pattern.search(l))), None)
 
     total = extract_total_amount(all_lines)
 
-    print(f"\nStore: {store_name}")
-    print(f"Receipt Date: {date if date else 'Not found'}")
-    print(f"Total Amount: ${total if total else 'Not found'}\n")
-
+    # Parse items between "Description" and lines matching TOTAL / SUBTOTAL / etc
     item_lines = []
     capture = False
     for line in all_lines:
@@ -124,7 +126,7 @@ def print_receipt_items(path):
         if re.match(r'^\d+\s*@\s*\$\d+\.\d{2}\s*EACH$', l.strip(), re.IGNORECASE):
             qty_match = re.match(r'^(\d+)\s*@\s*\$\d+\.\d{2}\s*EACH$', l.strip(), re.IGNORECASE)
             if qty_match and parsed_items:
-                parsed_items[-1]['qty'] = int(qty_match.group(1))  # update quantity of last item
+                parsed_items[-1].qty = int(qty_match.group(1))  # update quantity of last item
         else:
             # Accumulate item line until price found at end
             if current_item:
@@ -135,12 +137,18 @@ def print_receipt_items(path):
                 parsed_items.append(parse_item_line(current_item))
                 current_item = ""
 
-    print("--- Receipt Items ---\n")
-    for item in parsed_items:
-        print(item)
+    if current_item:
+        parsed_items.append(parse_item_line(current_item))
+
+    return Receipt(
+        store_name=store_name,
+        date=date,
+        total_amount=total,
+        items=parsed_items
+    )
 
 
 if __name__ == "__main__":
-    print_receipt_items(
-        "/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/coles/e-receipts/receipt3.pdf"
-    )
+    receipt = parse_receipt_items("/Users/rohitvalanki/ReceiptProcessingService/test/test-receipts/coles/e-receipts/receipt3.pdf")
+    import dataclasses
+    print(json.dumps(dataclasses.asdict(receipt), indent=4))
